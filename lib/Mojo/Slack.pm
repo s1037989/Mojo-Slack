@@ -6,6 +6,7 @@ use Mojo::Loader 'load_class';
 
 use Mojo::Slack::WebHook;
 use Mojo::Slack::WebAPI;
+use Mojo::Slack::RealTimeMessagingAPI;
 
 use Scalar::Util 'weaken';
 
@@ -13,6 +14,7 @@ has 'backend';
 has log => sub { Mojo::Log->new };
 has webhook => sub { Mojo::Slack::WebHook->new(@_) };
 has webapi => sub { Mojo::Slack::WebAPI->new(@_) };
+has rtmapi => sub { Mojo::Slack::RealTimeMessagingAPI->new(@_) };
 
 sub new {
   my $self = shift->SUPER::new(@_);
