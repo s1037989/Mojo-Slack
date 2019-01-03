@@ -1,0 +1,205 @@
+#!/usr/bin/env perl
+use Mojolicious::Lite;
+
+use FindBin;
+BEGIN { unshift @INC, "$FindBin::Bin/lib"; }
+
+plugin 'Config';
+plugin 'ReplyTime';
+plugin 'OAuth2' => {
+  slack => {
+    key    => app->config->{slack}->{client_id},
+    secret => app->config->{slack}->{client_secret},
+    authorize_url => "https://slack.com/oauth/authorize",
+    token_url     => "https://slack.com/api/oauth.access",
+  },
+};
+plugin 'Autotask::WebService' => app->config('autotask')->{webservice} || {};
+plugin 'Autotask::ExecuteCommand' => app->config('autotask')->{executecommand} || {};
+plugin 'Slack' => {Pg => app->config('pg')};
+plugin 'Minion' => {Pg => app->config('pg')};
+plugin 'Minion::Admin';
+plugin 'Kit::Task::TicketReferenced';
+plugin 'Kit::Task::ProjectReferenced';
+plugin 'Kit::Task::InformationRequested';
+plugin 'Kit::Task::AssistanceRequested';
+plugin 'Kit::Task::PeerReview';
+plugin 'Kit::Task::ExtensionCallout';
+
+my $r = app->routes->add_shortcut(livelink => sub {
+  my ($r, $name) = @_;
+  $r->any("/livelink/$name")->to(cb => sub {
+    my $c = shift;
+    return $c->render unless $c->param('submit');
+    $c->minion->enqueue($name => [$c->req->params->to_hash]);
+    return $c->render('close_window');
+  })->name($name);
+});
+
+get '/' => 'home';
+
+group {
+  under '/autotask' => sub {
+    # HIGH: Use a company-based live link application for authorizing the request as coming from Autotask
+    #       Put the password in the config file
+    return 1;
+  };
+
+  $r->livelink('information_requested');
+  $r->livelink('assistance_requested');
+  $r->livelink('peer_review');
+
+  post '/extension_callout' => sub {
+    my $c = shift;
+    $c->minion->enqueue(extension_callout => [$c->req->params->to_hash]);
+    $c->reply->time;
+  };
+};
+
+group {
+  # MED: Subscribe to new channel event and join the bot into it
+  # MED: Provide a slack command to allow repeating the original message on the new channel
+
+  under '/slack' => sub {
+    my $c = shift;
+    # HIGH: https://api.slack.com/docs/verifying-requests-from-slack#about
+  return 1;
+    $c->req->body($c->param('payload')) if $c->param('payload') && $c->req->headers->content_type eq 'application/x-www-form-urlencoded';
+    $c->reply->time and return 0 unless $c->slack->verification;
+    my $slack_retry = $c->req->headers->header('X-Slack-Retry-Num');
+    my $slack_reason = $c->req->headers->header('X-Slack-Retry-Reason');
+    $c->app->log->warn("Slack retry $slack_retry ($slack_reason)... app issue?") if $slack_retry;
+    #$c->app->log->debug($c->dumper({json => $c->req->json}));
+    #$c->app->log->debug($c->dumper({headers => $c->req->headers}));
+    return 1;
+  };
+
+  get '/disconnect' => sub {
+    my $c = shift;
+    $c->session(expires => 1)->render('close_window');
+  };
+  any '/connect' => sub {
+    my $c = shift;
+    $c->session(username => $c->param('username')) if $c->param('username');
+    $c->session(number => $c->param('number')) if $c->param('number');
+    $c->session(title => $c->param('title')) if $c->param('title');
+    $c->app->log->info(Mojo::Util::dumper($c->session));
+    return $c->redirect_to('home') if $c->session->{token};
+    # HIGH: Store autotask username and password in DB
+    my $get_token_args = {
+      redirect_uri => $c->url_for("connect")->userinfo(undef)->to_abs,
+      scope => "channels:history channels:read channels:write chat:write:bot chat:write:user"
+    };
+    $c->oauth2->get_token_p(slack => $get_token_args)->then(sub {
+      return unless my $provider_res = shift; # Redirect to Slack
+      $c->session(token => $provider_res->{access_token});
+      $c->app->log->info($c->session->{token});
+      # HIGH: Lookup email address from slack using access token and then lookup autotask id using email
+      #       Store the access token, scope, slack id, autotask id, and email in DB
+      $c->redirect_to('home');
+    })->catch(sub {
+      return $c->render(text => shift);
+    });
+  };
+
+  post '/command' => sub {
+    my $c = shift;
+    # LOW: use a hook to rewrite command URLs to include the command in the URL
+    #      this would allow for separate routes per command
+    return $c->reply->time unless $c->param('command') eq '/autotask';
+    # LOW: use Mojo::Util::getopt to parse text
+    return $c->reply->time;
+  };
+
+  post '/action-endpoint' => sub {
+    my $c = shift;
+    $c->render_maybe(text => $c->slack->events->url_verification) and return;
+
+    if ( $c->req->json('/callback_id') eq 'open_in_autotask' ) {
+      $c->app->log->debug("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/channel/id'), response_url => $c->req->json('/response_url'), $1]) if $c->req->json('/message/text') =~ qr/(T\d{8}\.\d{4})/;
+      $c->app->log->debug("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [$c->req->json('/channel/id'), response_url => $c->req->json('/response_url'), $1]) if $c->req->json('/message/text') =~ qr/(P\d{8}\.\d{4})/;
+    } else {
+      $c->app->log->debug("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/event/channel'), $1]) if $c->req->json('/event/text') =~ qr/(T\d{8}\.\d{4})/;
+      $c->app->log->debug("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [$c->req->json('/event/channel'), $1]) if $c->req->json('/event/text') =~ qr/(P\d{8}\.\d{4})/;
+    }
+
+    return $c->reply->time;
+  };
+};
+
+app->start;
+
+__DATA__
+@@ close_window.html.ep
+<html>
+<head>
+<script language="javascript" type="text/javascript">
+//window.open('','_parent','');
+window.close();
+</script>
+</head>
+</html>
+
+@@ layouts/autotask_livelink.html.ep
+<!DOCTYPE html>
+<html>
+  <head>
+  <title><%= title %></title>
+  <style>
+  input, label {
+      display:block;
+  }
+  </style>
+  </head>
+  <body>
+  <h1><%= title %></h1>
+  <h2><%= session 'number' %> - <%= session 'title' %></h2>
+  <p>Autotask Username: <%= session 'username' %></p>
+  <p>Slack Token: <%= session 'token' %></p>
+  <p>Slack ID: </p>
+  <%= content %>
+  <p><%= link_to Home => 'home' %></p>
+  <p><%= link_to Disconnect => 'disconnect' %></p>
+  </body>
+</html>
+
+@@ home.html.ep
+% title 'Autotask / Slack';
+% layout 'autotask_livelink';
+<p><%= link_to 'Request Information' => 'information_requested' %></p>
+<p><%= link_to 'Request Assistance' => 'assistance_requested' %></p>
+<p><%= link_to 'Peer Review Ticket Details' => 'peer_review' %></p>
+
+@@ information_requested.html.ep
+% title 'Request for Information';
+% layout 'autotask_livelink';
+%= form_for information_requested => (method => 'POST') => begin
+%= hidden_field number => session 'number'
+%= label_for doc => 'Have you read IT Glue?'
+%= check_box 'doc'
+%= label_for comments => 'What information are you looking for?'
+%= text_area 'comments'
+%= label_for notify => 'Notify channel?'
+%= check_box 'notify'
+%= submit_button 'Go', name => 'submit'
+% end
+
+@@ assistance_requested.html.ep
+% title 'Assistance Requested';
+% layout 'autotask_livelink';
+%= form_for assistance_requested => (method => 'POST') => begin
+%= hidden_field number => session 'number'
+%= label_for comments => 'Comments'
+%= text_area 'comments'
+%= submit_button 'Go', name => 'submit'
+% end
+
+@@ peer_review.html.ep
+% title 'Peer Review';
+% layout 'autotask_livelink';
+%= form_for peer_review => (method => 'POST') => begin
+%= hidden_field number => session 'number'
+%= label_for comments => 'Comments'
+%= text_area 'comments'
+%= submit_button 'Go', name => 'submit'
+% end

@@ -1,0 +1,19 @@
+{
+  pg => 'postgresql://user@%2fvar%2frun%2fpostgresql/db',
+  autotask => {
+    webservice => {
+      username => 'username',
+      password => 'password',
+    },
+    executecommand => {},
+  },
+  slack => {
+    bot_username => 'Autotask',
+    verification => '',
+    app_id => '',
+    client_id => '',
+    client_secret => '',
+    oauth_app => 'xoxp-',
+    oauth_bot => 'xoxb-',
+  }
+}
