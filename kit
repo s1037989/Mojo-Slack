@@ -14,8 +14,9 @@ plugin 'OAuth2' => {
     token_url     => "https://slack.com/api/oauth.access",
   },
 };
-plugin 'Autotask::WebService' => app->config('autotask')->{webservice} || {};
-plugin 'Autotask::ExecuteCommand' => app->config('autotask')->{executecommand} || {};
+#plugin 'Autotask::WebService' => app->config('autotask')->{webservice} || {};
+#plugin 'Autotask::ExecuteCommand' => app->config('autotask')->{executecommand} || {};
+plugin 'Autotask' => {%{app->config('autotask')}};
 plugin 'Slack' => {Pg => app->config('pg')};
 plugin 'Minion' => {Pg => app->config('pg')};
 plugin 'Minion::Admin';
