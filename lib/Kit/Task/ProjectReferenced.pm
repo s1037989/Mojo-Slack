@@ -9,13 +9,13 @@ sub register {
     my ($job, $number) = (shift, pop);
     my %args = @_%2==0 ? @_ : (channel => @_);
     $job->app->log->info("Project Referenced: $number");
-    my $project = $job->app->autotask->webservice->query('Project', {name => 'ProjectNumber', expressions => [{op => 'Equals', value => $number}]})->first;
+    my $project = $job->app->autotask->cache_c->query('Project', [{name => 'ProjectNumber', expressions => [{op => 'Equals', value => $number}]}])->first;
     return unless ref $project eq 'Project';
     $args{attachments} = [
       {
         pretext => "Found reference to Project $project->{ProjectNumber}",
         title => "Project $project->{ProjectNumber}: $project->{ProjectName}",
-        title_link => $job->app->autotask->execute->open_project(ProjectID => $project->{id}, AccountID => $project->{AccountID}),
+        title_link => $job->app->autotask->ec->open_project(ProjectID => $project->{id}, AccountID => $project->{AccountID}),
         text => $project->{Description},
         color => '#7CD197',
       },

@@ -12,7 +12,7 @@ sub register {
     $args{notify} ||= 0;
     $args{channel} = 'rfi_'.lc($args{number} =~ s/\./_/gr);
     $job->app->log->info("Ticket or Task Referenced: $number");
-    if ( my $ticket = $job->app->autotask->webservice->query('Ticket', {name => 'TicketNumber', expressions => [{op => 'Equals', value => $number}]})->first ) {
+    if ( my $ticket = $job->app->autotask->cache_c->query('Ticket', [{name => 'TicketNumber', expressions => [{op => 'Equals', value => $number}]}])->first ) {
       #warn Mojo::Util::dumper($ticket) and return;
       return unless ref $ticket eq 'Ticket';
       my $sme_channel = $job->app->slack->webapi->channels->info(channel => 'CF0GWGQ90'); # MED: pull this from config
@@ -34,7 +34,7 @@ sub register {
           {
             pretext => "*Request for Information* -- cannot find in CMDB$args{notify}",
             title => "Ticket $ticket->{TicketNumber}: $ticket->{Title}",
-            title_link => $job->app->autotask->execute->open_ticket_detail(TicketNumber => $ticket->{TicketNumber}, AccountID => $ticket->{AccountID}),
+            title_link => $job->app->autotask->ec->open_ticket_detail(TicketNumber => $ticket->{TicketNumber}, AccountID => $ticket->{AccountID}),
             text => ":boom: $args{comments}", #$ticket->{Description},
             color => '#7CD197',
             fields => [
@@ -87,22 +87,22 @@ sub register {
         $res = $job->app->slack->webapi->chat->post_message(%args);
       }
       $job->app->log->error($res->json('/error')) if $res->json('/error');
-    } elsif ( my $task = $job->app->autotask->webservice->query('Task', {name => 'TaskNumber', expressions => [{op => 'Equals', value => $number}]})->first ) {
+    } elsif ( my $task = $job->app->autotask->cache_c->query('Task', [{name => 'TaskNumber', expressions => [{op => 'Equals', value => $number}]}])->first ) {
       return unless ref $task eq 'Task';
-      my $project = $job->app->autotask->webservice->query('Project', {name => 'id', expressions => [{op => 'Equals', value => $task->{ProjectID}}]})->first;
+      my $project = $job->app->autotask->cache_c->query('Project', [{name => 'id', expressions => [{op => 'Equals', value => $task->{ProjectID}}]}])->first;
       return unless ref $project eq 'Project';
       $args{attachments} = [
         {
           pretext => "Found reference to Project Task $task->{TaskNumber}",
           title => "Task $task->{TaskNumber}: $task->{Title}",
-          title_link => $job->app->autotask->execute->open_task_detail(TaskID => $task->{id}, AccountID => $task->{AccountID}),
+          title_link => $job->app->autotask->ec->open_task_detail(TaskID => $task->{id}, AccountID => $task->{AccountID}),
           text => $task->{Description},
           color => '#7CD197',
         },
         {
           pretext => "Found reference to Project $project->{ProjectNumber}",
           title => "Project $project->{ProjectNumber}: $project->{ProjectName}",
-          title_link => $job->app->autotask->execute->open_project(ProjectID => $task->{ProjectID}, AccountID => $task->{AccountID}),
+          title_link => $job->app->autotask->ec->open_project(ProjectID => $task->{ProjectID}, AccountID => $task->{AccountID}),
           text => $project->{Description},
           color => '#7CD197',
         },
