@@ -11,6 +11,7 @@ sub register {
     $job->app->log->info("Ticket or Task Referenced: $number");
     if ( my $ticket = $job->app->autotask->cache_c->query('Ticket', [{name => 'TicketNumber', expressions => [{op => 'Equals', value => $number}]}])->first ) {
       return unless ref $ticket eq 'Ticket';
+      my $account = $job->app->autotask->cache_c->query('Account');
       $args{attachments} = [
         {
           pretext => "Found reference to Ticket $ticket->{TicketNumber}",
@@ -18,6 +19,13 @@ sub register {
           title_link => $job->app->autotask->ec->open_ticket_detail(TicketNumber => $ticket->{TicketNumber}, AccountID => $ticket->{AccountID}),
           text => $ticket->{Description},
           color => '#7CD197',
+          fields => [
+            {
+              title => "Client",
+              value => $account->grep(sub{$ticket->{AccountID} eq $_->{id}})->first->{AccountName},
+              short => 0
+            }
+          ],
         },
       ];
       my $res;
