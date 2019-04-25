@@ -14,12 +14,10 @@ plugin 'OAuth2' => {
     token_url     => "https://slack.com/api/oauth.access",
   },
 };
-#plugin 'Autotask::WebService' => app->config('autotask')->{webservice} || {};
-#plugin 'Autotask::ExecuteCommand' => app->config('autotask')->{executecommand} || {};
-plugin 'Autotask' => {%{app->config('autotask')}};
-plugin 'Slack' => {Pg => app->config('pg')};
 plugin 'Minion' => {Pg => app->config('pg')};
 plugin 'Minion::Admin';
+plugin 'Slack' => {Pg => app->config('pg')};
+plugin 'Autotask' => app->config('autotask');
 plugin 'Kit::Task::TicketReferenced';
 plugin 'Kit::Task::ProjectReferenced';
 plugin 'Kit::Task::InformationRequested';
@@ -115,13 +113,13 @@ group {
   post '/action-endpoint' => sub {
     my $c = shift;
     $c->render_maybe(text => $c->slack->events->url_verification) and return;
-
     if ( $c->req->json('/callback_id') eq 'open_in_autotask' ) {
-      $c->app->log->debug("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/channel/id'), response_url => $c->req->json('/response_url'), $1]) if $c->req->json('/message/text') =~ qr/(T\d{8}\.\d{4})/;
-      $c->app->log->debug("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [$c->req->json('/channel/id'), response_url => $c->req->json('/response_url'), $1]) if $c->req->json('/message/text') =~ qr/(P\d{8}\.\d{4})/;
+      $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/channel/id'), response_url => $c->req->json('/response_url'), $1]) if $c->req->json('/message/text') =~ qr/(T\d{8}\.\d{4})/;
+      $c->app->log->info("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [$c->req->json('/channel/id'), response_url => $c->req->json('/response_url'), $1]) if $c->req->json('/message/text') =~ qr/(P\d{8}\.\d{4})/;
     } else {
-      $c->app->log->debug("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/event/channel'), $1]) if $c->req->json('/event/text') =~ qr/(T\d{8}\.\d{4})/;
-      $c->app->log->debug("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [$c->req->json('/event/channel'), $1]) if $c->req->json('/event/text') =~ qr/(P\d{8}\.\d{4})/;
+      $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/event/channel'), $1]) if $c->req->json('/event/text') =~ qr/(T\d{8}\.\d{4})/;
+      $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/event/channel'), $1]) if $c->req->json('/event/text') =~ qr/ExecuteCommand.*TicketID=(\d+)/;
+      $c->app->log->info("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [$c->req->json('/event/channel'), $1]) if $c->req->json('/event/text') =~ qr/(P\d{8}\.\d{4})/;
     }
 
     return $c->reply->time;

@@ -9,9 +9,19 @@ sub register {
     my ($job, $number) = (shift, pop);
     my %args = @_%2==0 ? @_ : (channel => @_);
     $job->app->log->info("Ticket or Task Referenced: $number");
-    if ( my $ticket = $job->app->autotask->cache_c->query('Ticket', [{name => 'TicketNumber', expressions => [{op => 'Equals', value => $number}]}])->first ) {
-      return unless ref $ticket eq 'Ticket';
-      my $account = $job->app->autotask->cache_c->query('Account');
+    my $ticketquery;
+    if ( $number =~ /^\d+$/ ) {
+      $ticketquery = [{name => 'id', expressions => [{op => 'Equals', value => $number}]}];
+    } elsif ( $number =~ /^T\d{8}\.\d{4}$/ ) {
+      $ticketquery = [{name => 'TicketNumber', expressions => [{op => 'Equals', value => $number}]}];
+    } else {
+      $job->fail('not a TicketID or TicketNumber');
+      return;
+    }
+    if ( my $ticket = $job->app->autotask->query('Ticket', $ticketquery)->first ) {
+      $job->fail('not a ticket') and return unless ref $ticket eq 'Ticket';
+      my $account = $job->app->autotask->query_all('Account');
+      $job->fail('not an account') and return unless ref $account;
       $args{attachments} = [
         {
           pretext => "Found reference to Ticket $ticket->{TicketNumber}",
@@ -22,7 +32,7 @@ sub register {
           fields => [
             {
               title => "Client",
-              value => $account->grep(sub{$ticket->{AccountID} eq $_->{id}})->first->{AccountName},
+              value => $account->grep(sub{$ticket->{AccountID} eq $_->{id}})->map(sub{$_=$_->{AccountName}||'???'})->first,
               short => 0
             }
           ],
@@ -35,10 +45,10 @@ sub register {
       } else {
         $res = $job->app->slack->webapi->chat->post_message(%args);
       }
-      $job->app->log->error($res->json('/error')) if $res->json('/error');
-    } elsif ( my $task = $job->app->autotask->cache_c->query('Task', [{name => 'TaskNumber', expressions => [{op => 'Equals', value => $number}]}])->first ) {
+      $job->fail($res->json('/error')) and $job->app->log->error($res->json('/error')) if $res->json('/error');
+    } elsif ( my $task = $job->app->autotask->query('Task', [{name => 'TaskNumber', expressions => [{op => 'Equals', value => $number}]}])->first ) {
       return unless ref $task eq 'Task';
-      my $project = $job->app->autotask->cache_c->query('Project', [{name => 'id', expressions => [{op => 'Equals', value => $task->{ProjectID}}]}])->first;
+      my $project = $job->app->autotask->query('Project', [{name => 'id', expressions => [{op => 'Equals', value => $task->{ProjectID}}]}])->first;
       return unless ref $project eq 'Project';
       $args{attachments} = [
         {
