@@ -106,6 +106,10 @@ group {
     # LOW: use a hook to rewrite command URLs to include the command in the URL
     #      this would allow for separate routes per command
     return $c->reply->time unless $c->param('command') eq '/autotask';
+    $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [response_url => $c->param('response_url'), $1]) if $c->param('text') =~ qr/(T\d{8}\.\d{4})/;
+    $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [response_url => $c->param('response_url'), $1]) if $c->param('text') =~ qr/ExecuteCommand.*TicketID=(\d+)/;
+    $c->app->log->info("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [response_url => $c->param('response_url'), $1]) if $c->param('text') =~ qr/(P\d{8}\.\d{4})/;
+
     # LOW: use Mojo::Util::getopt to parse text
     return $c->reply->time;
   };
