@@ -106,9 +106,10 @@ group {
     # LOW: use a hook to rewrite command URLs to include the command in the URL
     #      this would allow for separate routes per command
     return $c->reply->time unless $c->param('command') eq '/autotask';
-    $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [response_url => $c->param('response_url'), $1]) if $c->param('text') =~ qr/(T\d{8}\.\d{4})/;
-    $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [response_url => $c->param('response_url'), $1]) if $c->param('text') =~ qr/ExecuteCommand.*TicketID=(\d+)/;
-    $c->app->log->info("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [response_url => $c->param('response_url'), $1]) if $c->param('text') =~ qr/(P\d{8}\.\d{4})/;
+    $c->app->log->info("User Command: /autotask");
+    $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [response_type => 'in_channel', response_url => $c->param('response_url'), $1]) if $c->param('text') =~ qr/(T\d{8}\.\d{4})/;
+    $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [response_type => 'in_channel', response_url => $c->param('response_url'), $1]) if $c->param('text') =~ qr/ExecuteCommand.*TicketID=(\d+)/;
+    $c->app->log->info("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [response_type => 'in_channel', response_url => $c->param('response_url'), $1]) if $c->param('text') =~ qr/(P\d{8}\.\d{4})/;
 
     # LOW: use Mojo::Util::getopt to parse text
     return $c->reply->time;
@@ -117,13 +118,19 @@ group {
   post '/action-endpoint' => sub {
     my $c = shift;
     $c->render_maybe(text => $c->slack->events->url_verification) and return;
-    if ( $c->req->json('/callback_id') eq 'open_in_autotask' ) {
-      $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/channel/id'), response_url => $c->req->json('/response_url'), $1]) if $c->req->json('/message/text') =~ qr/(T\d{8}\.\d{4})/;
-      $c->app->log->info("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [$c->req->json('/channel/id'), response_url => $c->req->json('/response_url'), $1]) if $c->req->json('/message/text') =~ qr/(P\d{8}\.\d{4})/;
+    if ( my $payload = Mojo::JSON::Pointer->new(Mojo::JSON::j($c->param('payload'))) ) {
+      my $callback_id = $payload->get('/callback_id');
+      $c->app->log->info("User Action: $callback_id");
+      if ( $callback_id eq 'expand_autotask_reference' ) {
+        $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$payload->get('/channel/id'), response_type => 'in_channel', response_url => $payload->get('/response_url'), $1]) if $payload->get('/message/text') =~ qr/(T\d{8}\.\d{4})/;
+        $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$payload->get('/channel/id'), response_type => 'in_channel', response_url => $payload->get('/response_url'), $1]) if $payload->get('/message/text') =~ qr/ExecuteCommand.*TicketID=(\d+)/;
+        $c->app->log->info("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [$payload->get('/channel/id'), response_type => 'in_channel', response_url => $payload->get('/response_url'), $1]) if $payload->get('/message/text') =~ qr/(P\d{8}\.\d{4})/;
+      }
     } else {
-      $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/event/channel'), $1]) if $c->req->json('/event/text') =~ qr/(T\d{8}\.\d{4})/;
-      $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/event/channel'), $1]) if $c->req->json('/event/text') =~ qr/ExecuteCommand.*TicketID=(\d+)/;
-      $c->app->log->info("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [$c->req->json('/event/channel'), $1]) if $c->req->json('/event/text') =~ qr/(P\d{8}\.\d{4})/;
+      $c->app->log->info('Eavesdropping (bot invited to room gets all messages)');
+      $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/event/channel'), response_type => 'in_channel', $1]) if $c->req->json('/event/text') =~ qr/(T\d{8}\.\d{4})/;
+      $c->app->log->info("Enqueueing ticket_referenced: $1") and $c->minion->enqueue(ticket_referenced => [$c->req->json('/event/channel'), response_type => 'in_channel', $1]) if $c->req->json('/event/text') =~ qr/ExecuteCommand.*TicketID=(\d+)/;
+      $c->app->log->info("Enqueueing project_referenced: $1") and $c->minion->enqueue(project_referenced => [$c->req->json('/event/channel'), response_type => 'in_channel', $1]) if $c->req->json('/event/text') =~ qr/(P\d{8}\.\d{4})/;
     }
 
     return $c->reply->time;
