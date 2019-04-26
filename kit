@@ -118,7 +118,8 @@ group {
   post '/action-endpoint' => sub {
     my $c = shift;
     $c->render_maybe(text => $c->slack->events->url_verification) and return;
-    if ( my $payload = Mojo::JSON::Pointer->new(Mojo::JSON::j($c->param('payload'))) ) {
+    if ( my $payload = $c->param('payload') ) {
+      $payload = Mojo::JSON::Pointer->new(Mojo::JSON::j($payload));
       my $callback_id = $payload->get('/callback_id');
       $c->app->log->info("User Action: $callback_id");
       if ( $callback_id eq 'expand_autotask_reference' ) {
